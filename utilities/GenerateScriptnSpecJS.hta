@@ -1,0 +1,281 @@
+<html>
+<head>
+<title>Generate Multiple Test Script and Pro JS Files</title>
+<HTA:APPLICATION
+  APPLICATIONNAME="Generate Multiple Test Script and Pro JS Files"
+  ID="MyHTMLapplication"
+  VERSION="1.0"/>
+</head>
+
+<script language="VBScript">
+
+Dim txtXLSFilename, txtGenerateResult
+Dim txtFileFilter
+
+Dim sResultXMLDocumentFile, sResultSummaryFile
+Dim sOutput, oFS, oFile
+Dim bMatchUsingAttribs
+Dim bTrace, sTraceLog, iTraceDepth, iTraceStep
+
+Sub Window_OnLoad
+	Call Form
+  'This method will be called when the application loads
+  'Add your code here
+End Sub
+
+Sub SetFilter
+	'txtFileFilter.value = txtXLSFilename.value
+	If txtFileFilter.value = "" then
+	    Dim oXLSFS: Set oXLSFS = CreateObject("Scripting.FileSystemObject")
+		txtFileFilter.value = oXLSFS.GetFileName(txtXLSFilename.value)
+		Set oXLSFS = Nothing
+	End If 
+End Sub
+
+Sub Form
+	Set txtXLSFilename = document.getElementById("txtXLSFile1")
+	Set txtFileFilter = document.getElementById("txtFileFilter")
+	Set txtGenerateResult = document.getElementById("txtResults")
+End Sub
+
+Sub Generate
+    sOutput = ""
+	Call WriteScriptJSFiles
+	sOutput = sOutput & "======================================================" & vbNewLine
+	txtGenerateResult.value = sOutput & txtGenerateResult.value
+End Sub
+
+Sub WriteScriptJSFiles
+    Dim iRow: Dim iCol
+    Dim sLines
+    Dim sAction
+    Dim arrHeader(): Dim arrParams()
+    Dim RowType: Const HEADER = 0: Const ACTION = 1
+    Dim oSheet: Dim iRows: Dim iCols
+    Dim sScriptName
+    Const ForReading = 1, ForWriting = 2, ForAppending = 3
+    Dim sLog
+
+    Dim oXLSFile
+    Dim oXLSFS: Set oXLSFS = CreateObject("Scripting.FileSystemObject")
+	Dim sParentFolder: sParentFolder = oXLSFS.GetParentFolderName(txtXLSFilename.value)
+'msgbox sParentFolder
+	Dim oParentFolder: Set oParentFolder = oXLSFS.GetFolder(sParentFolder)
+'msgbox	oParentFolder.
+	Dim oXL : Set oXL = CreateObject("Excel.Application")
+	Dim bDisplayAlerts : bDisplayAlerts = oXL.DisplayAlerts
+	oXL.DisplayAlerts = False
+
+
+	Dim oWorkBook
+    Dim oFS, oFile, oFolder
+
+	Dim sVanillaFolder, sTargetFolder
+	Dim sVanillaText
+	
+'msgbox txtFileFilter.value
+	if txtFileFilter.value = "" then 
+'msgbox txtFileFilter.value
+		txtFileFilter.value = oXLSFS.GetFileName(txtXLSFilename.value)
+	End If
+	
+
+	For Each oXLSFile In oParentFolder.Files
+		If CompareFileName(oXLSFile.Name, txtFileFilter.value) Then
+		    Set oWorkBook = oXL.Workbooks.Open(oXLSFile.Path)
+		
+			Set oFS = CreateObject("Scripting.FileSystemObject")
+			sVanillaFolder = oWorkbook.Path & "\..\templates\"  
+			sTargetFolder = oWorkbook.Path & "\" & Left(oWorkbook.Name, (InStrRev(oWorkbook.Name, ".", -1, vbTextCompare) - 1)) & "\"
+			
+			On Error Resume Next
+			Set oFolder = oFS.CreateFolder(sTargetFolder)
+			On Error GoTo 0
+			
+			Set oFS = Nothing
+			
+			For Each oSheet In oWorkbook.Worksheets
+				If UBound(Split(oSheet.Name, ".")) < 2 Then
+					'Not a script sheet
+				ElseIf Split(oSheet.Name, ".")(1) = "script" Then
+					sScriptName = Split(oSheet.Name, ".")(0)
+					iRows = oSheet.UsedRange.Rows(oSheet.UsedRange.Rows.Count).Row
+					iCols = oSheet.UsedRange.Columns(oSheet.UsedRange.Columns.Count).Column
+				
+					sLines = "var " & sScriptName & " = [" & vbNewLine
+					For iRow = 2 To iRows
+						Select Case UCase(Trim(oSheet.Cells(iRow, 2).Value))
+						Case "", "HEADER":
+							RowType = HEADER
+							For iCol = 3 To iCols
+								ReDim Preserve arrHeader(iCol - 2)
+								arrHeader(iCol - 3) = oSheet.Cells(iRow, iCol).Value
+							Next
+						Case Else:
+							RowType = ACTION
+							sAction = oSheet.Cells(iRow, 2).Value
+							If Trim(oSheet.Cells(iRow, 1).Value) <> "" Then
+								sAction = "#" & oSheet.Cells(iRow, 2).Value
+							End If
+							sLines = sLines & vbTab & "[{action:'" & sAction & "',params:[{"
+							ReDim Preserve arrParams(UBound(arrHeader) + 1)
+							For iCol = 3 To UBound(arrHeader) + 2
+								If arrHeader(iCol - 3) <> "" Then 
+									arrParams(iCol - 3) = oSheet.Cells(iRow, iCol).Value
+									sLines = sLines & arrHeader(iCol - 3) & ":'" & arrParams(iCol - 3) & "',"
+								End If
+							Next
+							sLines = Mid(sLines, 1, Len(sLines) - 1) & "}]}]," & vbNewLine
+						End Select
+					Next
+					
+					sLines = Mid(sLines, 1, Len(sLines) - 3) & vbNewLine & "];" & vbNewLine & vbNewLine
+					sLines = sLines & "module.exports = " & sScriptName & ";" & vbNewLine
+					
+		'Write out the .script.js file
+					Set oFS = CreateObject("Scripting.FileSystemObject")
+					Set oFile = oFS.OpenTextFile(sTargetFolder & oSheet.Name, ForWriting, True)
+					oFile.Write sLines
+					oFile.Close
+					Set oFile = Nothing
+					Set oFS = Nothing
+					sOutput = sOutput & Now() & ": created file: " & sTargetFolder & oSheet.Name & vbNewLine
+				
+		'Create a .spec.js file
+					Set oFS = CreateObject("Scripting.FileSystemObject")
+					Set oFile = oFS.OpenTextFile(sVanillaFolder & "vanilla.spec.js", ForReading, True)
+					sVanillaText = oFile.ReadAll
+					oFile.Close
+					Set oFile = oFS.OpenTextFile(sTargetFolder & sScriptName & ".spec.js", ForWriting, True)
+					sVanillaText = Replace(sVanillaText, "vanillaScriptName", sScriptName)
+					oFile.Write Replace(sVanillaText, "vanillaTestName", Left(oWorkbook.Name, (InStrRev(oWorkbook.Name, ".", -1, vbTextCompare) - 1)))
+					oFile.Close
+					sOutput = sOutput & Now() & ": created file: " & sTargetFolder & sScriptName & ".spec.js" & vbNewLine
+					
+					Set oFile = Nothing
+					Set oFS = Nothing
+				
+				End If
+			Next 'Sheet
+
+			'Create a pro.setup.js file
+			Dim sSetupText
+			Set oFS = CreateObject("Scripting.FileSystemObject")
+			Set oFile = oFS.OpenTextFile(sVanillaFolder & "setup.spec.js", ForReading, True)
+			sSetupText = oFile.ReadAll
+			oFile.Close
+			Set oFile = oFS.OpenTextFile(sTargetFolder & "all.spec.setup.js", ForWriting, True)
+			sSetupText = Replace(sSetupText, "vanillaScriptName", sScriptName)
+			oFile.Write Replace(sSetupText, "vanillaTestName", Left(oWorkbook.Name, (InStrRev(oWorkbook.Name, ".", -1, vbTextCompare) - 1)))
+			oFile.Close
+			sOutput = sOutput & Now() & ": created file: " & sTargetFolder & "all.spec.setup.js" & vbNewLine
+			Set oFile = Nothing
+			Set oFS = Nothing
+
+			'Create a pro.reset.js file
+			Dim sResetText
+			Set oFS = CreateObject("Scripting.FileSystemObject")
+			Set oFile = oFS.OpenTextFile(sVanillaFolder & "reset.spec.js", ForReading, True)
+			sResetText = oFile.ReadAll
+			oFile.Close
+			Set oFile = oFS.OpenTextFile(sTargetFolder & "all.spec.reset.js", ForWriting, True)
+			sResetText = Replace(sResetText, "vanillaScriptName", sScriptName)
+			oFile.Write Replace(sResetText, "vanillaTestName", Left(oWorkbook.Name, (InStrRev(oWorkbook.Name, ".", -1, vbTextCompare) - 1)))
+			oFile.Close
+			sOutput = sOutput & Now() & ": created file: " & sTargetFolder & "all.spec.reset.js" & vbNewLine
+			Set oFile = Nothing
+			Set oFS = Nothing
+
+			oWorkBook.Close
+			Set oWorkBook = Nothing
+		Else
+			'sOutput = sOutput & oXLSFile.name & " ignored, "
+		End If 'Filter
+	Next 'XLSFile
+	
+	Set oXLSFS = Nothing
+    oXL.DisplayAlerts = bDisplayAlerts
+	oXL.Quit
+	Set oXL = Nothing
+    
+End Sub
+
+Function CompareFileName (ByVal Name, ByVal Filter) ' (recursive)
+   CompareFileName = False
+   Dim np, fp: np = 1: fp = 1
+   Do
+      If fp > Len(Filter) Then CompareFileName = np > len(name): Exit Function
+      If Mid(Filter,fp) = ".*" Then    ' special case: ".*" at end of filter
+         If np > Len(Name) Then CompareFileName = True: Exit Function
+         End If
+      If Mid(Filter,fp) = "." Then     ' special case: "." at end of filter
+         CompareFileName = np > Len(Name): Exit Function
+         End If
+      Dim fc: fc = Mid(Filter,fp,1): fp = fp + 1
+      Select Case fc
+         Case "*"
+            CompareFileName = CompareFileName2(name,np,filter,fp)
+            Exit Function
+         Case "?"
+            If np <= Len(Name) And Mid(Name,np,1) <> "." Then np = np + 1
+         Case Else
+            If np > Len(Name) Then Exit Function
+            Dim nc: nc = Mid(Name,np,1): np = np + 1
+            If Strcomp(fc,nc,vbTextCompare)<>0 Then Exit Function
+         End Select
+      Loop
+   End Function
+
+Function CompareFileName2 (ByVal Name, ByVal np0, ByVal Filter, ByVal fp0)
+   Dim fp: fp = fp0
+   Dim fc2
+   Do                                  ' skip over "*" and "?" characters in filter
+      If fp > Len(Filter) Then CompareFileName2 = True: Exit Function
+      fc2 = Mid(Filter,fp,1): fp = fp + 1
+      If fc2 <> "*" And fc2 <> "?" Then Exit Do
+      Loop
+   If fc2 = "." Then
+      If Mid(Filter,fp) = "*" Then     ' special case: ".*" at end of filter
+         CompareFileName2 = True: Exit Function
+         End If
+      If fp > Len(Filter) Then         ' special case: "." at end of filter
+         CompareFileName2 = InStr(np0,Name,".") = 0: Exit Function
+         End If
+      End If
+   Dim np
+   For np = np0 To Len(Name)
+      Dim nc: nc = Mid(Name,np,1)
+      If StrComp(fc2,nc,vbTextCompare)=0 Then
+         If CompareFileName(Mid(Name,np+1),Mid(Filter,fp)) Then
+            CompareFileName2 = True: Exit Function
+            End If
+         End If
+      Next
+   CompareFileName2 = False
+End Function
+
+
+'--------------------------------------------------------------------------
+'--------------------------------------------------------------------------
+Sub ExitGenerate
+	Self.close 
+End Sub
+
+
+</script>
+
+<body bgcolor="white">
+
+Select XLS file: <Input type="file" size="130" name="file1" title="Click to browse for file" id="txtXLSFile1" onChange="SetFilter"/>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+
+<input type="button" value="Generate"  onclick="Generate" id="btnGenerate" title="Click to generate files" style="width:100px;color:green;font-weight:bold"/> <p><p/>
+
+File filter: &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<Input type="text" size="50" title="File filter (eg conc*.xlsx) - if blank will use the specified file above otherwise will override it" id="txtFileFilter" style="background-color:lightgrey;color=blue"></textarea> <p/><p/>
+
+<textarea type="textarea" cols="170" rows="30" id="txtResults" style="background-color:lightgrey;color=blue">Log of files generated will show here</textarea> <p/><p/>
+<p><p/>
+<input type="button" value="Exit" onclick="ExitGenerate" id="btnExit" style="width:100px;color:red"/> <p/><p/>
+
+</body>
+</html>

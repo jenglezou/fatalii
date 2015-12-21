@@ -1,0 +1,20 @@
+{
+  "name": "seleniumjasmine",
+  "version": "1.0.0",
+  "description": "SeleniumJasmine",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dictionaryjs": "0.0.8",
+    "jasmine": "^2.3.2",
+    "jasmine-reporters": "^2.0.7",
+    "jasmine-spec-reporter": "^2.4.0",
+    "keyword": "^0.1.1",
+    "replace": "^0.3.0",
+    "selenium-webdriver": "^2.48.0"
+  }
+}
